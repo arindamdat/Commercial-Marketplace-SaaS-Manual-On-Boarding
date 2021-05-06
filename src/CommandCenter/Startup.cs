@@ -3,32 +3,33 @@
 
 namespace CommandCenter
 {
+    using System.Threading.Tasks;
+    using Azure.Identity;
     using CommandCenter.Authorization;
     using CommandCenter.AzureQueues;
+    using CommandCenter.DimensionUsageStore;
     using CommandCenter.Mail;
     using CommandCenter.Marketplace;
     using CommandCenter.OperationsStore;
     using CommandCenter.Webhook;
-
     using Microsoft.AspNetCore.Authentication.Cookies;
     using Microsoft.AspNetCore.Authentication.JwtBearer;
     using Microsoft.AspNetCore.Authentication.OpenIdConnect;
     using Microsoft.AspNetCore.Authorization;
     using Microsoft.AspNetCore.Builder;
+    using Microsoft.AspNetCore.DataProtection;
     using Microsoft.AspNetCore.Hosting;
     using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.HttpOverrides;
     using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.DependencyInjection;
     using Microsoft.Extensions.DependencyInjection.Extensions;
     using Microsoft.Extensions.Hosting;
     using Microsoft.Identity.Web;
     using Microsoft.Identity.Web.UI;
-    using Microsoft.Marketplace.SaaS;
-    using System.Threading.Tasks;
-    using Serilog;
     using Microsoft.Marketplace.Metering;
-    using CommandCenter.DimensionUsageStore;
-    using Azure.Identity;
+    using Microsoft.Marketplace.SaaS;
+    using Serilog;
 
     /// <summary>
     /// ASP.NET core startup class.
@@ -60,6 +61,7 @@ namespace CommandCenter
             else
             {
                 app.UseExceptionHandler("/Home/Error");
+                app.UseForwardedHeaders();
 
                 // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
                 app.UseHsts();
@@ -94,6 +96,21 @@ namespace CommandCenter
         /// <param name="services">Service collection.</param>
         public void ConfigureServices(IServiceCollection services)
         {
+            var connString = this.configuration.GetValue<string>("application:keyStoreConStr");
+
+            //services.AddDataProtection(opt =>
+            //{
+            //    opt.ApplicationDiscriminator = "test.app";
+            //})
+            // .PersistKeysToStackExchangeRedis(connectionMultiplexer: StackExchange.Redis.ConnectionMultiplexer.Connect(connString), "TestApp-DataProtection");
+
+
+            services.Configure<ForwardedHeadersOptions>(options =>
+            {
+                options.ForwardedHeaders =
+                    ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+            });
+
             // Enable JwtBerar auth for the webhook to validate the incoming token with the WebHookTokenParameters section, since this call will be
             // related with our AAD App regisration details on the partner center.
             services.AddMicrosoftIdentityWebApiAuthentication(this.configuration, "WebHookTokenParameters");
@@ -105,7 +122,7 @@ namespace CommandCenter
                 {
                     // Need to override the ValidAudience, since the incoming token has the app ID as the aud claim. 
                     // Library expects it to be api://<appId> format.
-                                        options.TokenValidationParameters.ValidAudience = this.configuration["WebHookTokenParameters:ClientId"];
+                    options.TokenValidationParameters.ValidAudience = this.configuration["WebHookTokenParameters:ClientId"];
                     options.TokenValidationParameters.ValidIssuer = $"https://sts.windows.net/{this.configuration["WebHookTokenParameters:TenantId"]}/";
                 });
 

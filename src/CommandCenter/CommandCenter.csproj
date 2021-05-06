@@ -24,6 +24,7 @@
   <ItemGroup>
     <PackageReference Include="Azure.Storage.Queues" Version="12.6.0" />
     <PackageReference Include="Ercenk.Microsoft.Marketplace" Version="1.0.0-preview5" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="5.0.5" />
     <PackageReference Include="Microsoft.AspNetCore.Diagnostics.EntityFrameworkCore" Version="5.0.4" />
     <PackageReference Include="Microsoft.AspNetCore.Mvc.NewtonsoftJson" Version="5.0.4" />
     <PackageReference Include="Microsoft.Azure.Cosmos.Table" Version="1.0.8" />
