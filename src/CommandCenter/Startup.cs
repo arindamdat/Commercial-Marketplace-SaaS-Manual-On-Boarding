@@ -28,6 +28,7 @@ namespace CommandCenter
     using Microsoft.Extensions.Hosting;
     using Microsoft.Identity.Web;
     using Microsoft.Identity.Web.UI;
+    using Microsoft.IdentityModel.Protocols.OpenIdConnect;
     using Microsoft.Marketplace.Metering;
     using Microsoft.Marketplace.SaaS;
     using Serilog;
@@ -136,48 +137,64 @@ namespace CommandCenter
                 });
 
             // Enable AAD sign on on the landing page.
-            services.AddMicrosoftIdentityWebAppAuthentication(this.configuration, "AzureAd");
-            services.Configure<OpenIdConnectOptions>(options =>
+            services.Configure<AzureAdOptions>(this.configuration.GetSection("AzureAd"));
+            var azureAdOptions = new AzureAdOptions();
+            this.configuration.Bind("AzureAd", azureAdOptions);
+
+           
+
+            // services.AddMicrosoftIdentityWebAppAuthentication(this.configuration, "AzureAd");
+            services.AddAuthentication(options =>
             {
-                if (this.configuration.GetValue<string>("application:IsClusterEnv") == bool.TrueString)
+                options.DefaultAuthenticateScheme = OpenIdConnectDefaults.AuthenticationScheme;
+                options.DefaultSignInScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+            })
+            .AddOpenIdConnect(options =>
+            {
+                options.Authority = azureAdOptions.Instance;
+                options.ClientId = azureAdOptions.ClientId;
+                options.ResponseType = OpenIdConnectResponseType.IdToken;
+                options.CallbackPath = azureAdOptions.CallbackPath;
+                options.SignedOutCallbackPath = azureAdOptions.SignedOutCallbackPath;
+
+                // options.TokenValidationParameters.NameClaimType = "name";
+                options.TokenValidationParameters.ValidateIssuer = false;
+
+                var redirectToIdpHandler = options.Events.OnRedirectToIdentityProvider;
+                options.Events.OnRedirectToIdentityProvider = async context =>
                 {
-                    var redirectToIdpHandler = options.Events.OnRedirectToIdentityProvider;
-                    options.Events.OnRedirectToIdentityProvider = async context =>
-                    {
-                        await redirectToIdpHandler(context);
-                        context.ProtocolMessage.RedirectUri = UriHelper.BuildAbsolute(
-                            "https",
-                            context.Request.Host,
-                            context.Request.PathBase,
-                            options.CallbackPath);
-                    };
-                    var redirectToIdpForSignOutHandler = options.Events.OnRedirectToIdentityProviderForSignOut;
-                    options.Events.OnRedirectToIdentityProviderForSignOut = async context =>
-                    {
-                        await redirectToIdpForSignOutHandler(context);
-                        context.ProtocolMessage.PostLogoutRedirectUri = UriHelper.BuildAbsolute(
-                            "https",
-                            context.Request.Host,
-                            context.Request.PathBase,
-                            options.SignedOutCallbackPath
-                            );
-                    };
-                }
+                    await redirectToIdpHandler(context);
+                    context.ProtocolMessage.RedirectUri = UriHelper.BuildAbsolute(
+                        "https",
+                        context.Request.Host,
+                        context.Request.PathBase,
+                        options.CallbackPath);
+                };
+                var redirectToIdpForSignOutHandler = options.Events.OnRedirectToIdentityProviderForSignOut;
+                options.Events.OnRedirectToIdentityProviderForSignOut = async context =>
+                {
+                    await redirectToIdpForSignOutHandler(context);
+                    context.ProtocolMessage.PostLogoutRedirectUri = UriHelper.BuildAbsolute(
+                        "https",
+                        context.Request.Host,
+                        context.Request.PathBase,
+                        options.SignedOutCallbackPath
+                        );
+                };
 
                 options.Events.OnSignedOutCallbackRedirect = (context) =>
-                    {
-                        context.Response.Redirect("/Subscriptions/Index");
-                        context.HandleResponse();
-
-                        return Task.CompletedTask;
-                    };
-            });
-
-            services.Configure<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme, options =>
                 {
-                    options.AccessDeniedPath = new PathString("/Subscriptions/NotAuthorized");
-                });
+                    context.Response.Redirect("/Subscriptions/Index");
+                    context.HandleResponse();
 
+                    return Task.CompletedTask;
+                };
+            })
+            .AddCookie(CookieAuthenticationDefaults.AuthenticationScheme, options =>
+            {
+                options.AccessDeniedPath = new PathString("/Subscriptions/NotAuthorized");
+            });
             services.AddDistributedMemoryCache();
 
             services.Configure<CommandCenterOptions>(this.configuration.GetSection("CommandCenter"));
