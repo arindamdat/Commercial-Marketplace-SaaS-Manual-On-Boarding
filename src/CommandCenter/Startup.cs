@@ -20,6 +20,7 @@ namespace CommandCenter
     using Microsoft.AspNetCore.DataProtection;
     using Microsoft.AspNetCore.Hosting;
     using Microsoft.AspNetCore.Http;
+    using Microsoft.AspNetCore.Http.Extensions;
     using Microsoft.AspNetCore.HttpOverrides;
     using Microsoft.Extensions.Configuration;
     using Microsoft.Extensions.DependencyInjection;
@@ -61,10 +62,15 @@ namespace CommandCenter
             else
             {
                 app.UseExceptionHandler("/Home/Error");
-                app.UseForwardedHeaders();
+
 
                 // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
                 app.UseHsts();
+            }
+
+            if (this.configuration.GetValue<string>("application:IsClusterEnv") == bool.TrueString)
+            {
+                app.UseForwardedHeaders();
             }
 
             app.UseSerilogRequestLogging();
@@ -74,7 +80,7 @@ namespace CommandCenter
 
             app.UseCookiePolicy(new CookiePolicyOptions
             {
-                Secure = CookieSecurePolicy.None, // if in debug mode
+                Secure = CookieSecurePolicy.Always, // if in debug mode
                 MinimumSameSitePolicy = SameSiteMode.Unspecified,
             });
             app.UseAuthentication();
@@ -96,20 +102,23 @@ namespace CommandCenter
         /// <param name="services">Service collection.</param>
         public void ConfigureServices(IServiceCollection services)
         {
-            var connString = this.configuration.GetValue<string>("application:keyStoreConStr");
-
-            //services.AddDataProtection(opt =>
-            //{
-            //    opt.ApplicationDiscriminator = "test.app";
-            //})
-            // .PersistKeysToStackExchangeRedis(connectionMultiplexer: StackExchange.Redis.ConnectionMultiplexer.Connect(connString), "TestApp-DataProtection");
-
-
-            services.Configure<ForwardedHeadersOptions>(options =>
+            if (this.configuration.GetValue<string>("application:IsClusterEnv") == bool.TrueString)
             {
-                options.ForwardedHeaders =
-                    ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-            });
+                var connString = this.configuration.GetValue<string>("application:keyStoreConStr");
+
+                services.AddDataProtection(opt =>
+                {
+                    opt.ApplicationDiscriminator = "test.app";
+                })
+                 .PersistKeysToStackExchangeRedis(connectionMultiplexer: StackExchange.Redis.ConnectionMultiplexer.Connect(connString), "TestApp-DataProtection");
+
+
+                services.Configure<ForwardedHeadersOptions>(options =>
+                {
+                    options.ForwardedHeaders =
+                        ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+                });
+            }
 
             // Enable JwtBerar auth for the webhook to validate the incoming token with the WebHookTokenParameters section, since this call will be
             // related with our AAD App regisration details on the partner center.
@@ -130,13 +139,38 @@ namespace CommandCenter
             services.AddMicrosoftIdentityWebAppAuthentication(this.configuration, "AzureAd");
             services.Configure<OpenIdConnectOptions>(options =>
             {
-                options.Events.OnSignedOutCallbackRedirect = (context) =>
+                if (this.configuration.GetValue<string>("application:IsClusterEnv") == bool.TrueString)
                 {
-                    context.Response.Redirect("/Subscriptions/Index");
-                    context.HandleResponse();
+                    var redirectToIdpHandler = options.Events.OnRedirectToIdentityProvider;
+                    options.Events.OnRedirectToIdentityProvider = async context =>
+                    {
+                        await redirectToIdpHandler(context);
+                        context.ProtocolMessage.RedirectUri = UriHelper.BuildAbsolute(
+                            "https",
+                            context.Request.Host,
+                            context.Request.PathBase,
+                            options.CallbackPath);
+                    };
+                    var redirectToIdpForSignOutHandler = options.Events.OnRedirectToIdentityProviderForSignOut;
+                    options.Events.OnRedirectToIdentityProviderForSignOut = async context =>
+                    {
+                        await redirectToIdpForSignOutHandler(context);
+                        context.ProtocolMessage.PostLogoutRedirectUri = UriHelper.BuildAbsolute(
+                            "https",
+                            context.Request.Host,
+                            context.Request.PathBase,
+                            options.SignedOutCallbackPath
+                            );
+                    };
+                }
 
-                    return Task.CompletedTask;
-                };
+                options.Events.OnSignedOutCallbackRedirect = (context) =>
+                    {
+                        context.Response.Redirect("/Subscriptions/Index");
+                        context.HandleResponse();
+
+                        return Task.CompletedTask;
+                    };
             });
 
             services.Configure<CookieAuthenticationOptions>(CookieAuthenticationDefaults.AuthenticationScheme, options =>

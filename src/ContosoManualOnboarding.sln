@@ -7,6 +7,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 	ProjectSection(SolutionItems) = preProject
 		Dockerfile = Dockerfile
 		global.json = global.json
+		push.sh = push.sh
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "CommandCenter", "CommandCenter", "{65B6D194-E813-4944-B3A8-1AE6C4E316D9}"
